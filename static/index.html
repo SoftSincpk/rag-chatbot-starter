@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Chatbot</title>
+<style>
+  :root { --bg:#0b1220; --panel:#111a2e; --text:#e6ecf7; --muted:#8a99b8; --accent:#4f8cff; --border:#22304d; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; display:flex; flex-direction:column; height:100vh; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:12px; padding-bottom: 12px; }
+  .msg { padding: 12px 14px; border-radius: 12px; line-height: 1.5; white-space: pre-wrap; max-width: 90%; }
+  .user { background: var(--accent); align-self: flex-end; }
+  .bot { background: var(--panel); border:1px solid var(--border); align-self: flex-start; }
+  .sources { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  form { display:flex; gap:8px; }
+  input[type=text] { flex:1; padding: 12px; border-radius: 10px; border:1px solid var(--border); background: var(--panel); color: var(--text); font-size: 15px; }
+  button, label.upload { padding: 12px 16px; border-radius: 10px; border:0; background: var(--accent); color:#fff; font-weight:600; cursor:pointer; font-size: 14px; }
+  label.upload { background: var(--panel); border:1px solid var(--border); }
+  label.upload input { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>RAG Chatbot</h1>
+  <p class="sub">Ask questions about your documents. Upload .md, .txt or .pdf files to add knowledge.</p>
+  <div id="log"></div>
+  <form id="f">
+    <label class="upload">Upload<input type="file" id="file" accept=".md,.txt,.pdf"></label>
+    <input type="text" id="q" placeholder="Ask a question..." autocomplete="off">
+    <button>Send</button>
+  </form>
+</main>
+<script>
+  const log = document.getElementById('log'), q = document.getElementById('q');
+  const history = [];
+  function add(text, cls, sources) {
+    const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text;
+    if (sources && sources.length) {
+      const s = document.createElement('div'); s.className = 'sources';
+      s.textContent = 'Sources: ' + [...new Set(sources.map(x => x.source))].join(', ');
+      d.appendChild(s);
+    }
+    log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
+  }
+  document.getElementById('f').addEventListener('submit', async e => {
+    e.preventDefault();
+    const question = q.value.trim(); if (!question) return;
+    q.value = ''; add(question, 'user');
+    const pending = add('Thinking...', 'bot');
+    try {
+      const r = await fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question, history }) });
+      const data = await r.json();
+      pending.remove();
+      if (!r.ok) throw new Error(data.detail || 'Request failed');
+      add(data.answer, 'bot', data.sources);
+      history.push({ role:'user', content: question }, { role:'assistant', content: data.answer });
+    } catch (err) { pending.textContent = 'Error: ' + err.message; }
+  });
+  document.getElementById('file').addEventListener('change', async e => {
+    const file = e.target.files[0]; if (!file) return;
+    const fd = new FormData(); fd.append('file', file);
+    const note = add('Uploading ' + file.name + '...', 'bot');
+    const r = await fetch('/documents', { method:'POST', body: fd });
+    const data = await r.json();
+    note.textContent = r.ok ? `Added ${data.saved}. Index now has ${data.chunks} chunks.` : 'Upload failed: ' + data.detail;
+    e.target.value = '';
+  });
+</script>
+</body>
+</html>
